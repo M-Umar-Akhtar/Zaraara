@@ -1,0 +1,147 @@
+/* Professional Header Styles */
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Header sticky behavior */
+header {
+  transition: all 0.3s ease;
+}
+
+/* Search input focus animation */
+input[type="text"]:focus,
+input[type="search"]:focus {
+  transform: scale(1.02);
+}
+
+/* Navigation menu animations */
+.nav-dropdown {
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mega menu hover effects */
+.mega-menu-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.mega-menu-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(to right, #1a1a1a, #c41e3a);
+  transition: width 0.3s ease;
+}
+
+.mega-menu-item:hover::before {
+  width: 100%;
+}
+
+/* Icon hover effects */
+.icon-hover {
+  transition: all 0.3s ease;
+}
+
+.icon-hover:hover {
+  transform: scale(1.1);
+}
+
+/* Cart badge pulse animation */
+@keyframes pulse-badge {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.badge-pulse {
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+/* Mobile menu slide animation */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.mobile-menu-enter {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+/* Backdrop blur for mobile menu */
+.backdrop-blur {
+  backdrop-filter: blur(8px);
+}
+
+/* Category badge animations */
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.badge-shimmer {
+  background: linear-gradient(
+    90deg,
+    #c41e3a 0%,
+    #ff6b6b 50%,
+    #c41e3a 100%
+  );
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+/* Premium badge glow */
+.premium-glow {
+  box-shadow: 0 0 10px rgba(217, 119, 6, 0.3);
+  animation: glow 2s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(217, 119, 6, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(217, 119, 6, 0.6);
+  }
+}
+
+/* Smooth transitions for all interactive elements */
+a, button {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced focus states for accessibility */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid #c41e3a;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
