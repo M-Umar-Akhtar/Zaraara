@@ -65,7 +65,7 @@ class ChatState(TypedDict):
     # PRODUCT PIPELINE
     product_filters: Annotated[Optional[List[dict]], operator.add]
     products: Annotated[Optional[List[dict]], operator.add]
-    product_reply: Annotated[dict, overwrite]
+    product_reply: Annotated[dict, merge_dict]
     category: Annotated[str, overwrite]
 
     # ORDER PIPELINE
