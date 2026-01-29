@@ -1,4 +1,5 @@
 # graph.py
+import base64
 import operator
 from typing import TypedDict, List, Optional
 from typing_extensions import Annotated
@@ -59,9 +60,17 @@ class ChatState(TypedDict):
     user_message: Annotated[str, overwrite]
     
     # INTENT FLAGS
+    chat: Annotated[bool, overwrite]
+    tryon: Annotated[bool, overwrite]
     product_intent: Annotated[bool, overwrite]
     order_intent: Annotated[bool, overwrite]
 
+    # TRYON STATES
+    product_name: Annotated[str, overwrite]
+    uploaded_image: Annotated[bytes, overwrite]  # store image bytes
+    generated_image: Annotated[str, overwrite]
+ 
+    # CHAT STATES
     # PRODUCT PIPELINE
     product_filters: Annotated[Optional[List[dict]], operator.add]
     products: Annotated[Optional[List[dict]], operator.add]
@@ -82,6 +91,7 @@ class ChatState(TypedDict):
 
     #NEXT NODES
     _next_nodes: Annotated[Optional[List[str]], overwrite]
+    chat_next_nodes: Annotated[Optional[List[str]], overwrite]
 
 
             
@@ -509,7 +519,25 @@ Keep under 20 words.
 
 
 # ------------------- SUPER NODE -------------------
-def super_intent_node(state: ChatState) -> ChatState:
+def super_node(state: ChatState) -> ChatState:
+    return state
+
+def tryon_node(state: ChatState) -> ChatState:
+    import base64
+
+def tryon_node(state: ChatState) -> ChatState:
+    # If no image provided, skip
+    user_image_bytes = state.get("uploaded_image")
+    if not user_image_bytes:
+        state["generated_image"] = None
+        return state
+
+    # Encode user image back as placeholder
+    encoded_img = base64.b64encode(user_image_bytes).decode("utf-8")
+    state["generated_image"] = encoded_img
+    return state
+
+def chat_node(state: ChatState) -> ChatState:
     user_msg = state["user_message"].lower()
     state["product_intent"] = state["order_intent"] = False
 
@@ -522,7 +550,7 @@ def super_intent_node(state: ChatState) -> ChatState:
         "red", "blue", "green", "black", "white", "gold", "purple", "navy", "pink", "maroon",
         "small", "medium", "large", "xl", "xs", "xxl", "one size",
         "cotton", "silk", "wool", "leather", "cotton blend", "premium silk", "oxford cotton",
-        "recommend", "available"
+        "recommend", "available","cloth","cloths","clothing"
     ]
     order_keywords = [
         "order", "my orders", "status", "track", "tracking", "delivery", "shipped",
@@ -568,7 +596,19 @@ def super_intent_node(state: ChatState) -> ChatState:
 
     return state
 
+# -------------------     ROUTERS     -------------------
 def super_node_router(state: ChatState) -> list[str]:
+    next_nodes = []
+    if state.get("chat"):
+        next_nodes.append("chat_node")
+    if state.get("tryon"):
+        next_nodes.append("tryon_node")
+    if not next_nodes:
+        next_nodes.append("response_synthesizer")
+    print("super next_nodes : ",next_nodes)
+    return next_nodes
+
+def chat_node_router(state: ChatState) -> list[str]:
     next_nodes = []
     if state.get("product_intent"):
         next_nodes.append("extract_product_filters")
@@ -576,11 +616,11 @@ def super_node_router(state: ChatState) -> list[str]:
         next_nodes.append("extract_order_filters")
     if not next_nodes:
         next_nodes.append("response_synthesizer")
-    print("next_nodes : ",next_nodes)
+    print("chat next_nodes : ",next_nodes)
     return next_nodes
     
-# ------------------- RESPONSE SYNTHESIZER -------------------
-def response_synthesizer(state: ChatState) -> ChatState:
+# ------------------- RESPONSE NODE -------------------
+def chat_response_synthesizer(state: ChatState) -> ChatState:
     """
     Combines outputs from product and order pipelines.
     Returns a response list, preserving product dicts and order text.
@@ -614,12 +654,35 @@ def response_synthesizer(state: ChatState) -> ChatState:
     # print("Done")
     # return state
 
+def tryon_response_node(state: ChatState) -> ChatState:
+    img_base64 = state.get("generated_image")
+
+    image_data_url = None
+    if img_base64:
+        # If it's already a data URL, don't double-wrap
+        if img_base64.startswith("data:image"):
+            image_data_url = img_base64
+        else:
+            # Default to JPEG (your base64 starts with /9j/)
+            image_data_url = f"data:image/jpeg;base64,{img_base64}"
+
+    state["response"] = [{
+        "type": "tryon",
+        "message": "This is a placeholder result.",
+        "resultImage": image_data_url
+    }]
+
+    return state
+
 
 # ------------------- GRAPH CONSTRUCTION -------------------
 graph = StateGraph(ChatState)
 
 # ------------------- Nodes -------------------
-graph.add_node("super_node", super_intent_node)
+graph.add_node("super_node", super_node)
+graph.add_node("chat_node", chat_node)
+graph.add_node("tryon_node", tryon_node)
+graph.add_node("tryon_response_node",tryon_response_node)
 
 # Product pipeline
 graph.add_node("extract_product_filters", extract_product_filters)
@@ -632,27 +695,36 @@ graph.add_node("fetch_orders", fetch_orders)
 graph.add_node("generate_order_response", generate_order_response)
 
 # Response synthesizer
-graph.add_node("response_synthesizer", response_synthesizer)
+graph.add_node("chat_response_synthesizer", chat_response_synthesizer)
 
 # ------------------- Edges -------------------
 graph.set_entry_point("super_node")
 graph.add_conditional_edges(
     "super_node",
     super_node_router,
-    ["extract_product_filters", "extract_order_filters","response_synthesizer"]
+    ["chat_node", "tryon_node"]
+)
+
+graph.add_edge("tryon_node", "tryon_response_node")
+graph.add_edge("tryon_response_node", END)
+
+graph.add_conditional_edges(
+    "chat_node",
+    chat_node_router,
+    ["extract_product_filters", "extract_order_filters","chat_response_synthesizer"]
 )
 
 # Product pipeline
 graph.add_edge("extract_product_filters", "fetch_products")
 graph.add_edge("fetch_products", "generate_product_response")
-graph.add_edge("generate_product_response", "response_synthesizer")
+graph.add_edge("generate_product_response", "chat_response_synthesizer")
 
 # Order pipeline
 graph.add_edge("extract_order_filters", "fetch_orders")
 graph.add_edge("fetch_orders", "generate_order_response")
-graph.add_edge("generate_order_response", "response_synthesizer")
+graph.add_edge("generate_order_response", "chat_response_synthesizer")
 
 # Synthesizer to END
-graph.add_edge("response_synthesizer", END)
+graph.add_edge("chat_response_synthesizer", END)
 
 chat_graph = graph.compile()

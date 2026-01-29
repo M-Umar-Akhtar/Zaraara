@@ -34,6 +34,8 @@ def chat():
     initial_state = {
         "user_id": user_id,
         "user_message": user_message,
+        "chat": True,      
+        "tryon": False,
         "product_filters": [],
         "order_filters": [],
         "product_reply": "",
@@ -66,6 +68,45 @@ def chat():
             }],
             "error": str(e)
         }), 500
+
+@app.route("/api/tryon", methods=["POST"])
+def virtual_try_on():
+    try:
+        # FormData request → use request.files and request.form
+        if "image" not in request.files:
+            return jsonify({"error": "No image uploaded"}), 400
+
+        image_file = request.files["image"]
+        product_name = request.form.get("productName", "").strip()
+
+        if not product_name:
+            return jsonify({"error": "Product name is required"}), 400
+
+        # Convert image to bytes (important)
+        image_bytes = image_file.read()
+
+        # Initial LangGraph state
+        initial_state = {
+            "chat": False,     
+            "tryon": True,      
+            "uploaded_image": image_bytes,
+            "product_name": product_name,
+        }
+
+        # Run the graph
+        final_state = chat_graph.invoke(initial_state)
+
+        # Graph returns structured response list
+        return jsonify(final_state["response"])
+
+    except Exception as e:
+        print("Error in try-on:", e)
+        return jsonify({
+            "error": "Try-on failed",
+            "details": str(e)
+        }), 500
+
+    
 
 @app.route("/api/chat/clear", methods=["POST"])
 def clear_chat():
