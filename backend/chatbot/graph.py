@@ -1,5 +1,9 @@
 # graph.py
+from io import BytesIO
+import time
 import base64
+from PIL import Image
+from rapidfuzz import process, fuzz
 import operator
 from typing import TypedDict, List, Optional
 from typing_extensions import Annotated
@@ -14,8 +18,9 @@ from openai import OpenAI  # Used only as Groq-compatible client
 # =========================================================
 GROQ_API_KEY = os.getenv("GROK_API_KEY")
 BACKEND_URL = os.getenv("NODE_BACKEND_URL")
-
+TRY_ON_API_KEY = os.getenv("TRY_ON_API_KEY")
 print("GROQ KEY FOUND:", GROQ_API_KEY is not None)
+print("TRY_ON_API_KEY:", TRY_ON_API_KEY is not None)
 
 # Groq uses OpenAI-compatible SDK
 client = OpenAI(
@@ -47,10 +52,6 @@ def merge_dict(prev: dict, new: dict) -> dict:
             merged[k] = v
     return merged
 
-
-
-
-
 # =========================================================
 # STATE
 # =========================================================
@@ -69,6 +70,7 @@ class ChatState(TypedDict):
     product_name: Annotated[str, overwrite]
     uploaded_image: Annotated[bytes, overwrite]  # store image bytes
     generated_image: Annotated[str, overwrite]
+    tryon_error: Annotated[str, overwrite]
  
     # CHAT STATES
     # PRODUCT PIPELINE
@@ -92,10 +94,6 @@ class ChatState(TypedDict):
     #NEXT NODES
     _next_nodes: Annotated[Optional[List[str]], overwrite]
     chat_next_nodes: Annotated[Optional[List[str]], overwrite]
-
-
-            
-
 
 # =========================================================
 # NODE 1 — FILTER EXTRACTION
@@ -181,6 +179,7 @@ def fetch_products(state: ChatState) -> ChatState:
             res = requests.get(f"{BACKEND_URL}/products", params=f, timeout=5)
             res.raise_for_status()
             items = res.json().get("items",[])
+            #print("ITEMS: ",items)
             if on_sale_requested:
                 items = [p for p in items if p.get("sale")]
             all_products.extend(items)
@@ -523,18 +522,126 @@ def super_node(state: ChatState) -> ChatState:
     return state
 
 def tryon_node(state: ChatState) -> ChatState:
-    import base64
+    print("tryon_node started")
 
-def tryon_node(state: ChatState) -> ChatState:
-    # If no image provided, skip
-    user_image_bytes = state.get("uploaded_image")
-    if not user_image_bytes:
-        state["generated_image"] = None
+    user_input = state.get("product_name")
+    user_image_file = state.get("uploaded_image")
+
+    if not user_input or not user_image_file:
+        state["tryon_error"] = "Missing image or product name."
         return state
 
-    # Encode user image back as placeholder
-    encoded_img = base64.b64encode(user_image_bytes).decode("utf-8")
-    state["generated_image"] = encoded_img
+    # ------------------ Correct product name ------------------
+    COMMON_PRODUCTS = [
+        "premium suit", "classic kurta", "silk dress",
+        "casual shirt", "formal shalwar"
+    ]
+
+    match, score, _ = process.extractOne(
+        user_input.lower(),
+        COMMON_PRODUCTS,
+        scorer=fuzz.token_sort_ratio
+    )
+    corrected_name = match if score > 70 else user_input
+    print("Corrected product:", corrected_name)
+
+    # ------------------ Fetch product ------------------
+    try:
+        res = requests.get(f"{BACKEND_URL}/products", params={"q": corrected_name}, timeout=5)
+        res.raise_for_status()
+        products = res.json().get("items", [])
+
+        if not products:
+            state["tryon_error"] = "Product not found."
+            return state
+
+        product = products[0]
+
+        # Get product image and metadata
+        product_image_url = product.get("image")
+        print("product_image_url: ",product_image_url)
+        if not product_image_url:
+            state["tryon_error"] = "Product image missing."
+            return state
+
+        # Download product image
+        product_res = requests.get(product_image_url, timeout=5)
+        product_res.raise_for_status()
+        product_bytes = product_res.content
+        print("product_bytes: ",product_bytes)
+        img = Image.open(BytesIO(product_bytes))
+        print("PRODUCT FORMAT:", img.format)
+        print("PRODUCT MODE:", img.mode)
+        print("PRODUCT SIZE:", img.size)
+    except Exception as e:
+        state["tryon_error"] = f"Product fetch error: {e}"
+        return state
+
+    try:
+        headers = {"Authorization": f"Bearer {TRY_ON_API_KEY}"}
+        files = {
+            "person_images": BytesIO(user_image_file),
+            "garment_images": BytesIO(product_bytes)
+        }
+
+        # Submit job
+        response = requests.post(
+            "https://tryon-api.com/api/v1/tryon",  # <-- real endpoint
+            headers=headers,
+            files=files
+        )
+        response.raise_for_status()
+        data = response.json()
+        job_id = data["jobId"]
+        status_url = data["statusUrl"]
+
+        print(f"Try-On job submitted: {job_id}")
+
+        # Poll for completion with timeout
+        job_status = "processing"
+        result_b64 = None
+        result_url = None
+        poll_start = time.time()
+        timeout_seconds = 120  # max 2 minutes to wait
+        print("Waiting 30 seconds for the job to start processing...")
+        time.sleep(30)
+        while True:
+            status_response = requests.get(f"https://tryon-api.com{status_url}", headers=headers)
+            status_response.raise_for_status()
+            status_data = status_response.json()
+
+            #print("Try on data: ", status_data)
+            job_status = status_data.get("status")
+
+            if job_status == "completed":
+                # Try to get base64 first, fallback to imageUrl
+                result_b64 = status_data.get("imageBase64")
+                result_url = status_data.get("imageUrl")
+                break
+
+            elif job_status in ["failed", "invalid_input"]:
+                raise Exception(f"Try-On job failed: {status_data.get('error')}")
+            
+            else:
+                print("Waiting 30 secs, Job Status: ",job_status)
+                time.sleep(30)
+
+        # Fetch image
+        if result_b64:
+            state["generated_image"] = result_b64
+        elif result_url:
+            image_res = requests.get(result_url)
+            image_res.raise_for_status()
+            state["generated_image"] = base64.b64encode(image_res.content).decode("utf-8")
+        else:
+            raise Exception("Try-On job did not return an image or URL.")
+
+        print("Try-On image generated successfully.")
+
+
+    except Exception as e:
+        state["tryon_error"] = f"Image Generation error: {e}"
+
     return state
 
 def chat_node(state: ChatState) -> ChatState:
@@ -655,20 +762,22 @@ def chat_response_synthesizer(state: ChatState) -> ChatState:
     # return state
 
 def tryon_response_node(state: ChatState) -> ChatState:
+    if state.get("tryon_error"):
+        state["response"] = [{
+            "type": "error",
+            "message": state["tryon_error"]
+        }]
+        return state
+
     img_base64 = state.get("generated_image")
 
     image_data_url = None
     if img_base64:
-        # If it's already a data URL, don't double-wrap
-        if img_base64.startswith("data:image"):
-            image_data_url = img_base64
-        else:
-            # Default to JPEG (your base64 starts with /9j/)
-            image_data_url = f"data:image/jpeg;base64,{img_base64}"
+        image_data_url = f"data:image/png;base64,{img_base64}"
 
     state["response"] = [{
         "type": "tryon",
-        "message": "This is a placeholder result.",
+        "message": "Here's your virtual try-on result.",
         "resultImage": image_data_url
     }]
 

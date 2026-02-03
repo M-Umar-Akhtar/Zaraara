@@ -25,9 +25,6 @@ def chat():
     
     if not auth_token:
         auth_token = ""
-    #print("Auth_token",auth_token)
-    # Get user_id from request or generate one
-    # You can use session, JWT token, or cookies to track users
     user_id = data.get("user_id", "default_user")
     
     # Prepare state

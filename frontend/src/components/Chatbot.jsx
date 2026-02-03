@@ -330,7 +330,7 @@ export default function Chatbot() {
                 {!tryOnImagePreview ? (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full h-48 border-2 border-dashed border-red-200 rounded-2xl flex flex-col items-center justify-center gap-3 bg-white hover:bg-red-50/50 hover:border-red-400 transition-all duration-300 group"
+                    className="w-full border-2 border-dashed border-red-200 rounded-2xl flex flex-col items-center justify-center gap-3 bg-white hover:bg-red-50/50 hover:border-red-400 transition-all duration-300 group p-6"
                   >
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
                       <Upload className="w-7 h-7 text-red-500" />
@@ -345,7 +345,7 @@ export default function Chatbot() {
                     <img
                       src={tryOnImagePreview}
                       alt="Preview"
-                      className="w-full h-48 object-cover rounded-2xl border border-red-200"
+                      className="w-full max-h-[600px] object-contain rounded-2xl border border-red-200"
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl flex items-center justify-center">
                       <button
@@ -362,6 +362,7 @@ export default function Chatbot() {
                     </div>
                   </div>
                 )}
+
               </div>
               {/* Product Name Input */}
               <div className="space-y-3">
